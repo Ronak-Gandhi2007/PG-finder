@@ -4,6 +4,8 @@ import React, { useState } from 'react';
 import { usePersona, Listing } from '@/context/PersonaContext';
 import { useRouter } from 'next/navigation';
 import { getInitials } from '@/lib/utils';
+import PropertyMap from '@/components/PropertyMap';
+
 
 interface ListingClientProps {
   listing: Listing;
@@ -37,9 +39,9 @@ export default function ListingClient({ listing }: ListingClientProps) {
       setErrorMessage('Please select a date for your visit.');
       return;
     }
-    
+
     setErrorMessage('');
-    
+
     const result = await addBooking({
       listingId: listing.id,
       listingTitle: listing.title,
@@ -88,7 +90,7 @@ export default function ListingClient({ listing }: ListingClientProps) {
               </p>
             </div>
           </div>
-          <button 
+          <button
             onClick={() => router.push(role === 'STUDENT' ? '/dashboard/student' : '/')}
             className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-xs font-bold cursor-pointer"
           >
@@ -154,9 +156,8 @@ export default function ListingClient({ listing }: ListingClientProps) {
                 <button
                   key={index}
                   onClick={() => setSelectedImage(img)}
-                  className={`w-24 aspect-[4/3] rounded-lg overflow-hidden border-2 shrink-0 cursor-pointer hover:opacity-80 transition-all ${
-                    (selectedImage || listing.image) === img ? 'border-deep-green scale-95' : 'border-transparent'
-                  }`}
+                  className={`w-24 aspect-[4/3] rounded-lg overflow-hidden border-2 shrink-0 cursor-pointer hover:opacity-80 transition-all ${(selectedImage || listing.image) === img ? 'border-deep-green scale-95' : 'border-transparent'
+                    }`}
                 >
                   <img src={img} alt={`Thumbnail ${index + 1}`} className="w-full h-full object-cover" />
                 </button>
@@ -188,10 +189,10 @@ export default function ListingClient({ listing }: ListingClientProps) {
             <span className="material-symbols-outlined text-[14px]" style={{ fontVariationSettings: "'FILL' 1" }}>verified</span>
             Verified Owner
           </div>
-          
+
           <div className="w-full border-t border-outline-variant pt-4 mt-2 flex flex-col gap-2">
             {listing.owner.phone ? (
-              <a 
+              <a
                 href={`tel:${listing.owner.phone}`}
                 className="w-full text-center py-2.5 text-xs font-bold text-deep-green border border-deep-green rounded-lg hover:bg-light-sage/20 transition-colors"
               >
@@ -203,7 +204,7 @@ export default function ListingClient({ listing }: ListingClientProps) {
               </span>
             )}
             {listing.owner.email ? (
-              <a 
+              <a
                 href={`mailto:${listing.owner.email}`}
                 className="w-full text-center py-2.5 text-xs font-bold text-on-primary bg-deep-green rounded-lg hover:bg-primary transition-colors"
               >
@@ -218,7 +219,7 @@ export default function ListingClient({ listing }: ListingClientProps) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-gutter">
         {/* Details Area */}
         <div className="lg:col-span-2 flex flex-col gap-8">
-          
+
           {/* Description */}
           <section className="bg-white rounded-card p-6 shadow-level-1 border border-outline-variant">
             <h2 className="font-headline-md text-lg font-bold text-[#333333] mb-4">About this PG</h2>
@@ -233,11 +234,10 @@ export default function ListingClient({ listing }: ListingClientProps) {
             {listing.rooms && listing.rooms.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {listing.rooms.map((room, idx) => (
-                  <div 
-                    key={idx} 
-                    className={`border border-outline-variant rounded-xl p-4 flex flex-col gap-1.5 ${
-                      room.available ? 'bg-white' : 'bg-surface-container-low opacity-60'
-                    }`}
+                  <div
+                    key={idx}
+                    className={`border border-outline-variant rounded-xl p-4 flex flex-col gap-1.5 ${room.available ? 'bg-white' : 'bg-surface-container-low opacity-60'
+                      }`}
                   >
                     <span className="font-label-md text-xs text-on-surface-variant font-semibold flex justify-between items-center">
                       {room.name}
@@ -293,45 +293,43 @@ export default function ListingClient({ listing }: ListingClientProps) {
           {/* Location & Map Section */}
           <section className="bg-white rounded-card p-6 shadow-level-1 border border-outline-variant">
             <h2 className="font-headline-md text-lg font-bold text-[#333333] mb-4 flex items-center gap-2">
-              <span className="material-symbols-outlined text-primary">map</span> 
+              <span className="material-symbols-outlined text-primary">map</span>
               Location & Map
             </h2>
-            {role === 'GUEST' ? (
-              <div className="w-full bg-surface-container-low rounded-xl border-2 border-dashed border-outline-variant flex flex-col items-center justify-center text-center py-12 px-6 gap-3">
-                <span className="material-symbols-outlined text-4xl text-outline">lock</span>
-                <h3 className="font-bold text-on-surface text-lg">Map & Directions Locked</h3>
-                <p className="text-sm text-on-surface-variant w-full max-w-[400px] mx-auto">
-                  Please log in as a Student to view exact distances, directions from your college, and the interactive map.
-                </p>
-                <button 
-                  onClick={requireAuth}
-                  className="mt-4 bg-deep-green text-white px-6 py-2.5 rounded-full text-sm font-semibold hover:bg-primary transition-colors shadow-sm cursor-pointer"
-                >
-                  Log In to View Map
-                </button>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-4">
-                <div className="w-full h-64 rounded-xl overflow-hidden border border-outline-variant">
-                  <iframe 
-                    width="100%" 
-                    height="100%" 
-                    style={{ border: 0 }} 
-                    loading="lazy" 
-                    allowFullScreen 
-                    src={`https://www.google.com/maps/embed/v1/place?key=YOUR_API_KEY&q=${encodeURIComponent(listing.title + ' ' + listing.location)}`}
-                    srcDoc={`<html style="margin:0;padding:0;overflow:hidden;"><body style="margin:0;padding:0;display:flex;align-items:center;justify-content:center;background:#e5e3df;height:100%;font-family:sans-serif;color:#666;">Google Map: ${listing.title} <br/> Location: ${listing.location} <br/> Distance: ${listing.distanceText}</body></html>`}
-                  ></iframe>
+            <div className="flex flex-col gap-4">
+              {listing.latitude != null && listing.longitude != null ? (
+                <>
+                  <PropertyMap
+                    points={[{
+                      id: listing.id,
+                      lat: listing.latitude,
+                      lng: listing.longitude,
+                      name: listing.title,
+                    }]}
+                    height={256}
+                  />
+                  <a
+                    href={`https://www.google.com/maps/dir/?api=1&destination=${listing.latitude},${listing.longitude}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="self-start text-xs font-bold text-deep-green border border-deep-green rounded-lg px-4 py-2 hover:bg-light-sage/20 transition-colors"
+                  >
+                    Get directions
+                  </a>
+                </>
+              ) : (
+                <div className="w-full h-64 rounded-xl border border-outline-variant bg-surface-container-low flex items-center justify-center text-sm text-on-surface-variant">
+                  Exact location not available for this property.
                 </div>
-                <div className="flex items-start gap-3 bg-light-sage/20 p-4 rounded-xl">
-                  <span className="material-symbols-outlined text-deep-green mt-0.5">directions_walk</span>
-                  <div>
-                    <h4 className="font-bold text-deep-green text-sm">Directions to College</h4>
-                    <p className="text-xs text-on-surface-variant mt-1">{listing.distanceText}. Safe neighborhood with well-lit streets.</p>
-                  </div>
+              )}
+              <div className="flex items-start gap-3 bg-light-sage/20 p-4 rounded-xl">
+                <span className="material-symbols-outlined text-deep-green mt-0.5">directions_walk</span>
+                <div>
+                  <h4 className="font-bold text-deep-green text-sm">Directions to College</h4>
+                  <p className="text-xs text-on-surface-variant mt-1">{listing.distanceText}. Safe neighborhood with well-lit streets.</p>
                 </div>
               </div>
-            )}
+            </div>
           </section>
 
           {/* Reviews List */}
@@ -370,7 +368,7 @@ export default function ListingClient({ listing }: ListingClientProps) {
             <p className="text-xs text-on-surface-variant -mt-2">
               Select your preferred date and time slot to view the property in person.
             </p>
-            
+
             <form onSubmit={handleBookingSubmit} className="flex flex-col gap-4">
               {errorMessage && (
                 <div className="text-xs text-rose-600 bg-rose-50 p-2.5 rounded border border-rose-200">
@@ -419,22 +417,21 @@ export default function ListingClient({ listing }: ListingClientProps) {
               <button
                 type="submit"
                 disabled={bookingSuccess || isOwnerOrAdmin}
-                className={`w-full text-center py-3 rounded-lg font-label-md text-sm font-bold transition-all shadow-sm mt-2 ${
-                  bookingSuccess || isOwnerOrAdmin
-                    ? 'bg-zinc-300 text-zinc-500 cursor-not-allowed'
-                    : 'bg-deep-green hover:bg-primary hover:scale-[0.98] text-on-primary cursor-pointer'
-                }`}
+                className={`w-full text-center py-3 rounded-lg font-label-md text-sm font-bold transition-all shadow-sm mt-2 ${bookingSuccess || isOwnerOrAdmin
+                  ? 'bg-zinc-300 text-zinc-500 cursor-not-allowed'
+                  : 'bg-deep-green hover:bg-primary hover:scale-[0.98] text-on-primary cursor-pointer'
+                  }`}
               >
                 {isOwnerOrAdmin
                   ? 'Only students can request visits'
                   : bookingSuccess
-                  ? 'Visit Requested'
-                  : role === 'GUEST'
-                  ? 'Sign In to Request Visit'
-                  : 'Confirm Visit Request'}
+                    ? 'Visit Requested'
+                    : role === 'GUEST'
+                      ? 'Sign In to Request Visit'
+                      : 'Confirm Visit Request'}
               </button>
             </form>
-            
+
             <p className="text-center text-[10px] text-on-surface-variant font-medium">
               No reservation or broker fees. Free cancellation.
             </p>
