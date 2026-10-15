@@ -385,6 +385,7 @@ export default function StudentSettings() {
         .from('profiles')
         .update({
           student_id_doc_url: storagePath,
+          student_id_rejection_reason: null,
         })
         .eq('id', user.id);
 
@@ -666,6 +667,11 @@ export default function StudentSettings() {
                 <span className="material-symbols-outlined text-[16px]">verified</span>
                 Verified Student
               </span>
+            ) : profile?.student_id_rejection_reason ? (
+              <span className="inline-flex items-center gap-1.5 bg-rose-50 text-rose-800 text-xs font-bold px-3 py-1.5 rounded-full border border-rose-300">
+                <span className="material-symbols-outlined text-[16px]">cancel</span>
+                Verification Rejected
+              </span>
             ) : hasIdDoc ? (
               <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-800 text-xs font-bold px-3 py-1.5 rounded-full border border-amber-300">
                 <span className="material-symbols-outlined text-[16px]">hourglass_top</span>
@@ -679,6 +685,21 @@ export default function StudentSettings() {
             )}
           </div>
         </div>
+
+        {profile?.student_id_rejection_reason && !profile?.is_verified && (
+          <div className="bg-rose-50 border border-rose-300 p-4 rounded-xl text-xs text-rose-800 flex flex-col gap-1">
+            <div className="flex items-center gap-1.5 font-bold text-rose-900">
+              <span className="material-symbols-outlined text-[18px]">info</span>
+              Document Rejected by Administrator
+            </div>
+            <p>
+              <strong>Reason:</strong> {profile.student_id_rejection_reason}
+            </p>
+            <p className="text-[11px] text-rose-700 mt-0.5">
+              Please review the feedback above and upload a clearer, valid document to re-verify.
+            </p>
+          </div>
+        )}
 
         {idSuccess && (
           <div className="bg-emerald-50 border border-emerald-300 p-4 rounded-xl text-xs font-bold text-deep-green flex items-center gap-2">

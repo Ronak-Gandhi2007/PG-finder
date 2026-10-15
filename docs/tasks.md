@@ -32,7 +32,7 @@ Legend: [x] done and tested, [ ] to do. Update this file whenever something chan
 
 1. [ ] **Verify the live site** on a phone with mobile data (login, search, heart, booking, owner confirm)
 2. [ ] **Reviews**: migration so an owner can mark a Confirmed visit as Completed once its date has passed; real review submit; "Verified Resident" badge; reviews on listing, student, and owner pages
-3. [ ] **Admin tools**: verify listings and owners, review documents, hide listings (add an admin-only `admin_hidden` flag), moderate reports
+3. [x] **Admin verification tools**: real queries for pending student IDs and listings, on-demand short-lived signed URLs, approve/reject with reason, RLS integrity guards (012)
 4. [x] **Student settings**: save profile, avatar upload to public bucket, student ID upload to private bucket (011)
 5. [ ] **Owner verification documents** upload and admin review
 6. [ ] **Contact form** saving support tickets through a server action
@@ -44,7 +44,7 @@ Legend: [x] done and tested, [ ] to do. Update this file whenever something chan
 
 ## Known issues and gaps
 
-- Reviews, admin dashboard, premium/payments, and contact form are still mock or UI-only
+- Reviews, premium/payments, and contact form are still mock or UI-only
 - Students can post unverified reviews once reviews are wired (badge shows only after a Completed visit)
 - Rescheduling: owners can set the status but date/slot cannot change after creation
 - Shortlist rule does not check that the user is a student (app blocks owners; database does not)

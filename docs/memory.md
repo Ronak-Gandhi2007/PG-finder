@@ -45,7 +45,7 @@ A confirmed student account and a confirmed owner account exist for demos (detai
 | Shortlist, tour bookings | Real |
 | Owner add property and photos | Real |
 | Reviews | Mock (planned next) |
-| Admin dashboard | Mock |
+| Admin dashboard & verification | Real (real queries, student IDs, listings, on-demand signed URLs, approve/reject) |
 | Premium and payments | UI only |
 | Student settings | Real (profile details, avatar to public bucket, student ID to private bucket) |
 | Contact form | Not saved |
