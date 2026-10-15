@@ -47,7 +47,8 @@ A confirmed student account and a confirmed owner account exist for demos (detai
 | Reviews | Mock (planned next) |
 | Admin dashboard | Mock |
 | Premium and payments | UI only |
-| Student settings, contact form | Not saved |
+| Student settings | Real (profile details, avatar to public bucket, student ID to private bucket) |
+| Contact form | Not saved |
 
 ## Where things are
 
