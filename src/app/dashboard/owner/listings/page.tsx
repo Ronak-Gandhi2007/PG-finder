@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { usePersona, Listing } from '@/context/PersonaContext';
 import { createClient } from '@/lib/supabase/client';
+import LocationPicker from '@/components/LocationPicker';
+import { COLLEGE, haversineKm, describeDistance } from '@/lib/geo';
 
 /* ─── Types for real-owner data ─── */
 interface DbAmenity {
@@ -75,14 +77,21 @@ export default function OwnerListings() {
   const ownerListings = isDevDemo
     ? listings
     : listings.filter(
-        (l) => l.id !== 'listing-1' && l.id !== 'listing-2' && l.id !== 'listing-3',
-      );
+      (l) => l.id !== 'listing-1' && l.id !== 'listing-2' && l.id !== 'listing-3',
+    );
 
   /* ─── Shared UI state ─── */
   const [showAddForm, setShowAddForm] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [warningMsg, setWarningMsg] = useState('');
   const [saving, setSaving] = useState(false);
+
+  /* ─── Delete property state ─── */
+  const [propertyToDelete, setPropertyToDelete] = useState<{ id: string; title: string } | null>(null);
+  const [deleteInput, setDeleteInput] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   /* ─── Real-owner DB state ─── */
   const [dbProperties, setDbProperties] = useState<DbPropertyRow[]>([]);
@@ -102,7 +111,6 @@ export default function OwnerListings() {
   const [address, setAddress] = useState('');
   const [locationName, setLocationName] = useState('');
   const [distanceText, setDistanceText] = useState('5 mins walk to college');
-  const [distanceKm, setDistanceKm] = useState('');
   const [genderType, setGenderType] = useState<'Boys' | 'Girls' | 'Co-ed'>('Boys');
   const [basePrice, setBasePrice] = useState('');
   const [description, setDescription] = useState('');
@@ -110,6 +118,79 @@ export default function OwnerListings() {
   const [contactEmail, setContactEmail] = useState('');
   const [rooms, setRooms] = useState<RoomInput[]>([emptyRoom()]);
   const [selectedAmenityIds, setSelectedAmenityIds] = useState<Set<string>>(new Set());
+  const [pin, setPin] = useState<{ lat: number; lng: number } | null>(null);
+  const [manualPin, setManualPin] = useState(false);
+  const [pinStatus, setPinStatus] = useState('');
+  const [flySignal, setFlySignal] = useState(0);
+
+  // Distance to the college, calculated from the pin
+  const distanceInfo = useMemo(
+    () => (pin ? describeDistance(haversineKm(COLLEGE, pin)) : null),
+    [pin],
+  );
+
+  // Owner clicked or dragged the pin: their choice wins over the address search
+  const handleManualPin = useCallback((v: { lat: number; lng: number }) => {
+    setPin(v);
+    setManualPin(true);
+    setPinStatus('Pin set by you. It stays here even if you edit the address.');
+  }, []);
+
+  // Auto-search: waits 1 second after the owner stops typing, then places the pin
+  useEffect(() => {
+    if (!isRealOwner || !showAddForm || manualPin) return;
+    const addr = address.trim();
+    if (addr.length < 6) return;
+
+    const controller = new AbortController();
+    setPinStatus('Searching for this address…');
+
+    const search = async (q: string) => {
+      const url =
+        'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=in' +
+        '&accept-language=en&viewbox=73.6,18.75,74.0,18.4&bounded=0&q=' +
+        encodeURIComponent(q);
+      const res = await fetch(url, { signal: controller.signal });
+      if (!res.ok) throw new Error('search failed');
+      const data = await res.json();
+      return data?.[0] ? { lat: Number(data[0].lat), lng: Number(data[0].lon) } : null;
+    };
+
+    const timer = setTimeout(async () => {
+      try {
+        const area = locationName.trim();
+        let found = await search(
+          [addr, area, 'Pune, Maharashtra, India'].filter(Boolean).join(', '),
+        );
+        let exact = true;
+        if (!found && area) {
+          await new Promise((r) => setTimeout(r, 1100)); // free service allows 1 search per second
+          found = await search(`${area}, Pune, Maharashtra, India`);
+          exact = false;
+        }
+        if (controller.signal.aborted) return;
+        if (found) {
+          setPin(found);
+          setFlySignal((n) => n + 1);
+          setPinStatus(
+            exact
+              ? 'Pin placed from your address. Drag it or click the map to adjust.'
+              : 'Exact address not found, so the pin is on your area. Please drag it to your building.',
+          );
+        } else {
+          setPinStatus('Address not found. Please click the map to place the pin.');
+        }
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return;
+        setPinStatus('Could not search right now. Please click the map to place the pin.');
+      }
+    }, 1000);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [address, locationName, manualPin, isRealOwner, showAddForm]);
 
   // Dev-demo amenities (kept for backward compat)
   const [demoAmenities, setDemoAmenities] = useState<{ [key: string]: boolean }>({
@@ -435,15 +516,14 @@ export default function OwnerListings() {
       return 'Title must be 3-100 characters.';
     if (!address.trim()) return 'Address is required.';
     if (!locationName.trim()) return 'Area / location name is required.';
-    if (!distanceText.trim()) return 'Distance text is required.';
-    const km = parseFloat(distanceKm);
-    if (isNaN(km) || km < 0 || km > 50) return 'Distance in km must be 0-50.';
+    if (pin && haversineKm(COLLEGE, pin) > 50) return `The pin is more than 50 km from ${COLLEGE.name}. Please check the location.`;
     const bp = parseInt(basePrice, 10);
     if (isNaN(bp) || bp < 1 || bp > 100000) return 'Base price must be 1-100000.';
     if (description.trim().length < 20 || description.trim().length > 2000)
       return 'Description must be 20-2000 characters.';
     if (contactEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail.trim()))
       return 'Contact email is invalid.';
+    if (!pin) return 'Please mark your property location on the map.';
     if (rooms.length < 1 || rooms.length > 4) return 'Add 1-4 room types.';
     for (let i = 0; i < rooms.length; i++) {
       const r = rooms[i];
@@ -462,7 +542,6 @@ export default function OwnerListings() {
     setAddress('');
     setLocationName('');
     setDistanceText('5 mins walk to college');
-    setDistanceKm('');
     setGenderType('Boys');
     setBasePrice('');
     setDescription('');
@@ -470,6 +549,9 @@ export default function OwnerListings() {
     setContactEmail('');
     setRooms([emptyRoom()]);
     setSelectedAmenityIds(new Set());
+    setPin(null);
+    setManualPin(false);
+    setPinStatus('');
     setDemoAmenities({ Wifi: true, AC: false, Laundry: false, Gym: false, 'Food Included': true, CCTV: false, Security: false });
   };
 
@@ -487,6 +569,7 @@ export default function OwnerListings() {
     setSaving(true);
     const supabase = createClient();
     let propertyId: string | null = null;
+    const distance = describeDistance(haversineKm(COLLEGE, pin!));
 
     try {
       // (a) Insert property
@@ -499,12 +582,14 @@ export default function OwnerListings() {
           description: description.trim(),
           location_name: locationName.trim(),
           address: address.trim(),
-          distance_text: distanceText.trim(),
-          distance_km: parseFloat(distanceKm),
+          distance_text: distance.text,
+          distance_km: distance.km,
           base_price: parseInt(basePrice, 10),
           gender_type: genderType,
           contact_phone: contactPhone.trim() || null,
           contact_email: contactEmail.trim() || null,
+          latitude: pin ? pin.lat : null,
+          longitude: pin ? pin.lng : null,
         })
         .select('id')
         .single();
@@ -627,6 +712,172 @@ export default function OwnerListings() {
     setTimeout(() => setSuccessMsg(''), 4000);
   };
 
+  /* ─── Delete property handlers ─── */
+  const openDeleteModal = (prop: { id: string; title: string }) => {
+    setPropertyToDelete(prop);
+    setDeleteInput('');
+    setDeleteError('');
+  };
+
+  const closeDeleteModal = () => {
+    if (deleting) return;
+    setPropertyToDelete(null);
+    setDeleteInput('');
+    setDeleteError('');
+  };
+
+  const handleDeleteProperty = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!propertyToDelete) return;
+    if (deleteInput.trim() !== propertyToDelete.title.trim()) {
+      setDeleteError('Property name does not match. Please type the exact name to confirm.');
+      return;
+    }
+
+    setDeleting(true);
+    setDeleteError('');
+
+    try {
+      if (isRealOwner) {
+        const supabase = createClient();
+
+        // 1. Notify students who have pending or confirmed tours for this property
+        const { data: bookings } = await supabase
+          .from('bookings_visits')
+          .select('id, student_id, visit_date, time_slot, status')
+          .eq('property_id', propertyToDelete.id)
+          .in('status', ['Pending', 'Confirmed']);
+
+        if (bookings && bookings.length > 0) {
+          // Try RPC function first
+          const { error: rpcErr } = await supabase.rpc('notify_tour_students_property_deleted', {
+            p_property_id: propertyToDelete.id,
+            p_property_title: propertyToDelete.title,
+          });
+
+          if (rpcErr) {
+            console.warn('RPC notification failed, attempting fallback direct insert:', rpcErr);
+            const notifs = bookings.map((b) => ({
+              user_id: b.student_id,
+              title: 'Tour Cancelled: Property Removed',
+              message: `The property "${propertyToDelete.title}" has been removed by the owner. Your scheduled tour for ${b.visit_date} (${b.time_slot}) has been cancelled.`,
+              type: 'booking_declined' as const,
+              link_url: '/dashboard/student',
+            }));
+            const { error: directErr } = await supabase.from('notifications').insert(notifs);
+            if (directErr) {
+              console.warn('Direct notification insert also failed:', directErr);
+            }
+          }
+        }
+
+        // 2. First read the property's photo storage paths
+        const storagePaths: string[] = [];
+
+        // Read from property_images table before deleting the property row
+        const { data: imageRows } = await supabase
+          .from('property_images')
+          .select('image_url')
+          .eq('property_id', propertyToDelete.id);
+
+        if (imageRows && imageRows.length > 0) {
+          for (const img of imageRows) {
+            try {
+              const url = new URL(img.image_url);
+              const match = url.pathname.match(/\/property-images\/(.+)$/);
+              if (match && match[1]) {
+                const decoded = decodeURIComponent(match[1]);
+                if (!storagePaths.includes(decoded)) {
+                  storagePaths.push(decoded);
+                }
+              }
+            } catch {
+              // ignore invalid URL format
+            }
+          }
+        }
+
+        // Also check if there are remaining files in the property folder in storage
+        try {
+          const { data: listedFiles } = await supabase.storage
+            .from('property-images')
+            .list(propertyToDelete.id);
+
+          if (listedFiles && listedFiles.length > 0) {
+            for (const item of listedFiles) {
+              if (item.name) {
+                const p = `${propertyToDelete.id}/${item.name}`;
+                if (!storagePaths.includes(p)) {
+                  storagePaths.push(p);
+                }
+              }
+            }
+          }
+        } catch {
+          // ignore folder listing errors
+        }
+
+        // 3. Delete the property row (cascading to related rows)
+        const { error: deleteErr } = await supabase
+          .from('properties')
+          .delete()
+          .eq('id', propertyToDelete.id);
+
+        if (deleteErr) {
+          setDeleteError(deleteErr.message || 'Failed to delete property. Please try again.');
+          setDeleting(false);
+          return;
+        }
+
+        // 4. Remove the photo files from the storage bucket via Storage API
+        // If file removal fails, show a warning but still treat the property as deleted.
+        let storageWarning = '';
+        if (storagePaths.length > 0) {
+          try {
+            const { error: storageErr } = await supabase.storage
+              .from('property-images')
+              .remove(storagePaths);
+
+            if (storageErr) {
+              storageWarning = `Property deleted, but some photo files could not be removed from storage (${storageErr.message}).`;
+            }
+          } catch (sErr: any) {
+            storageWarning = `Property deleted, but photo file removal encountered an error (${sErr?.message || 'Storage error'}).`;
+          }
+        }
+
+        // 5. Clean up UI state, refresh listings
+        const deletedTitle = propertyToDelete.title;
+        setPropertyToDelete(null);
+        setDeleteInput('');
+        setDeleteError('');
+        setDeleting(false);
+
+        await fetchProperties();
+
+        if (storageWarning) {
+          setWarningMsg(storageWarning);
+          setSuccessMsg(`"${deletedTitle}" was deleted.`);
+        } else {
+          setSuccessMsg(`"${deletedTitle}" was deleted successfully.`);
+          setWarningMsg('');
+        }
+      } else {
+        // Dev-demo mode: remove from local state
+        const deletedTitle = propertyToDelete.title;
+        setListings((prev) => prev.filter((l) => l.id !== propertyToDelete.id));
+        setPropertyToDelete(null);
+        setDeleteInput('');
+        setDeleteError('');
+        setDeleting(false);
+        setSuccessMsg(`"${deletedTitle}" was deleted successfully.`);
+      }
+    } catch (err: any) {
+      setDeleteError(err?.message || 'An unexpected error occurred while deleting the property.');
+      setDeleting(false);
+    }
+  };
+
   const handleSubmit = isRealOwner ? handleRealSubmit : handleDemoSubmit;
 
   /* ─── Shared input classes ─── */
@@ -653,14 +904,41 @@ export default function OwnerListings() {
       </div>
 
       {successMsg && (
-        <div className="bg-emerald-50 border border-emerald-300 p-4 rounded-xl text-xs font-bold text-deep-green animate-pulse">
-          {successMsg}
+        <div className="bg-emerald-50 border border-emerald-300 p-4 rounded-xl text-xs font-bold text-deep-green flex items-center justify-between">
+          <span>{successMsg}</span>
+          <button
+            type="button"
+            onClick={() => setSuccessMsg('')}
+            className="text-deep-green hover:opacity-75 font-bold ml-2 cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {warningMsg && (
+        <div className="bg-amber-50 border border-amber-300 p-4 rounded-xl text-xs font-bold text-amber-800 flex items-center justify-between">
+          <span>{warningMsg}</span>
+          <button
+            type="button"
+            onClick={() => setWarningMsg('')}
+            className="text-amber-800 hover:text-amber-950 font-bold ml-2 cursor-pointer"
+          >
+            ✕
+          </button>
         </div>
       )}
 
       {errorMsg && (
-        <div className="bg-red-50 border border-red-300 p-4 rounded-xl text-xs font-bold text-red-700">
-          {errorMsg}
+        <div className="bg-red-50 border border-red-300 p-4 rounded-xl text-xs font-bold text-red-700 flex items-center justify-between">
+          <span>{errorMsg}</span>
+          <button
+            type="button"
+            onClick={() => setErrorMsg('')}
+            className="text-red-700 hover:opacity-75 font-bold ml-2 cursor-pointer"
+          >
+            ✕
+          </button>
         </div>
       )}
 
@@ -711,35 +989,6 @@ export default function OwnerListings() {
                 onChange={(e) => setLocationName(e.target.value)}
                 className={inputCls}
                 placeholder="e.g. Greater Noida"
-              />
-            </div>
-
-            {/* Distance text */}
-            <div className="flex flex-col gap-1">
-              <label className={labelCls}>Distance to Nearest College</label>
-              <input
-                type="text"
-                required
-                value={distanceText}
-                onChange={(e) => setDistanceText(e.target.value)}
-                className={inputCls}
-                placeholder="e.g. 5 mins walk to college"
-              />
-            </div>
-
-            {/* Distance KM */}
-            <div className="flex flex-col gap-1">
-              <label className={labelCls}>Distance in km</label>
-              <input
-                type="number"
-                required
-                min={0}
-                max={50}
-                step="0.1"
-                value={distanceKm}
-                onChange={(e) => setDistanceKm(e.target.value)}
-                className={inputCls}
-                placeholder="e.g. 1.5"
               />
             </div>
 
@@ -883,43 +1132,73 @@ export default function OwnerListings() {
                 ))}
               </div>
             )}
-
+            {/* ──── Location picker ──── */}
+            {isRealOwner && (
+              <div className="md:col-span-2 flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <label className={labelCls}>Pin Your Exact Location</label>
+                  {manualPin && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setManualPin(false);
+                        setPinStatus(
+                          address.trim().length < 6
+                            ? 'Type your address first.'
+                            : 'Searching for this address…',
+                        );
+                      }}
+                      className="text-xs font-bold text-primary hover:underline cursor-pointer"
+                    >
+                      Find from address again
+                    </button>
+                  )}
+                </div>
+                <LocationPicker value={pin} onChange={handleManualPin} flySignal={flySignal} />
+                {pinStatus && <p className="text-xs text-on-surface-variant">{pinStatus}</p>}
+                {distanceInfo && (
+                  <p className="text-xs font-semibold text-deep-green bg-light-sage/30 rounded-lg px-3 py-2">
+                    Distance to {COLLEGE.name}: about {distanceInfo.km} km ({distanceInfo.text}). Calculated automatically.
+                  </p>
+                )}
+              </div>
+            )}
             {/* ──── Amenities ──── */}
             <div className="md:col-span-2 flex flex-col gap-2">
               <label className={labelCls}>Amenities Provided</label>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {isRealOwner
                   ? dbAmenities.map((a) => (
-                      <label
-                        key={a.id}
-                        className="flex items-center gap-2 text-xs text-on-surface cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedAmenityIds.has(a.id)}
-                          onChange={() => toggleAmenity(a.id)}
-                          className="rounded border-[#B8D9B0] text-primary focus:ring-primary w-4 h-4 cursor-pointer"
-                        />
-                        {a.icon && <span className="text-sm">{a.icon}</span>}
-                        {a.name}
-                      </label>
-                    ))
+                    <label
+                      key={a.id}
+                      className="flex items-center gap-2 text-xs text-on-surface cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedAmenityIds.has(a.id)}
+                        onChange={() => toggleAmenity(a.id)}
+                        className="rounded border-[#B8D9B0] text-primary focus:ring-primary w-4 h-4 cursor-pointer"
+                      />
+                      {a.icon && <span className="text-sm">{a.icon}</span>}
+                      {a.name}
+                    </label>
+                  ))
                   : Object.keys(demoAmenities).map((a) => (
-                      <label
-                        key={a}
-                        className="flex items-center gap-2 text-xs text-on-surface cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={demoAmenities[a]}
-                          onChange={() =>
-                            setDemoAmenities((prev) => ({ ...prev, [a]: !prev[a] }))
-                          }
-                          className="rounded border-[#B8D9B0] text-primary focus:ring-primary w-4 h-4 cursor-pointer"
-                        />
-                        {a}
-                      </label>
-                    ))}
+                    <label
+                      key={a}
+                      className="flex items-center gap-2 text-xs text-on-surface cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={demoAmenities[a]}
+                        onChange={() =>
+                          setDemoAmenities((prev) => ({ ...prev, [a]: !prev[a] }))
+                        }
+                        className="rounded border-[#B8D9B0] text-primary focus:ring-primary w-4 h-4 cursor-pointer"
+                      />
+                      {a}
+                    </label>
+                  ))}
               </div>
             </div>
 
@@ -964,53 +1243,62 @@ export default function OwnerListings() {
                     className="border border-outline-variant rounded-xl p-4 flex flex-col gap-4"
                   >
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-16 h-16 rounded-lg overflow-hidden border border-outline-variant shrink-0 bg-surface-container-low flex items-center justify-center">
-                        {imgUrl ? (
-                          <img
-                            src={imgUrl}
-                            alt={prop.title}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <span className="material-symbols-outlined text-2xl text-outline-variant">
-                            image
-                          </span>
-                        )}
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-primary text-sm flex items-center gap-2">
-                          {prop.title}
-                          {prop.is_verified ? (
-                            <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded font-bold">
-                              Verified
-                            </span>
+                      <div className="flex items-center gap-3">
+                        <div className="w-16 h-16 rounded-lg overflow-hidden border border-outline-variant shrink-0 bg-surface-container-low flex items-center justify-center">
+                          {imgUrl ? (
+                            <img
+                              src={imgUrl}
+                              alt={prop.title}
+                              className="w-full h-full object-cover"
+                            />
                           ) : (
-                            <span className="text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded font-bold">
-                              Pending Review
+                            <span className="material-symbols-outlined text-2xl text-outline-variant">
+                              image
                             </span>
                           )}
-                        </h3>
-                        <p className="text-xs text-on-surface-variant mt-0.5">
-                          {prop.location_name}
-                        </p>
-                        <p className="text-xs text-on-surface-variant font-semibold mt-1">
-                          ₹{prop.base_price.toLocaleString()}/mo
-                        </p>
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-primary text-sm flex items-center gap-2">
+                            {prop.title}
+                            {prop.is_verified ? (
+                              <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded font-bold">
+                                Verified
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded font-bold">
+                                Pending Review
+                              </span>
+                            )}
+                          </h3>
+                          <p className="text-xs text-on-surface-variant mt-0.5">
+                            {prop.location_name}
+                          </p>
+                          <p className="text-xs text-on-surface-variant font-semibold mt-1">
+                            ₹{prop.base_price.toLocaleString()}/mo
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-on-surface-variant font-medium">
-                        {prop.rooms?.length ?? 0} room type{(prop.rooms?.length ?? 0) !== 1 ? 's' : ''}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => togglePhotoPanel(prop.id)}
-                        className="text-xs font-bold text-primary border border-primary px-3 py-1.5 rounded-lg hover:bg-primary hover:text-on-primary transition-colors cursor-pointer"
-                      >
-                        {expandedPhotoProp === prop.id ? 'Hide Photos' : 'Manage Photos'}
-                      </button>
-                    </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-on-surface-variant font-medium">
+                          {prop.rooms?.length ?? 0} room type{(prop.rooms?.length ?? 0) !== 1 ? 's' : ''}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => togglePhotoPanel(prop.id)}
+                          className="text-xs font-bold text-primary border border-primary px-3 py-1.5 rounded-lg hover:bg-primary hover:text-on-primary transition-colors cursor-pointer"
+                        >
+                          {expandedPhotoProp === prop.id ? 'Hide Photos' : 'Manage Photos'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openDeleteModal(prop)}
+                          className="text-xs font-bold text-red-600 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-50 hover:border-red-400 transition-colors cursor-pointer flex items-center gap-1"
+                          title="Delete property"
+                        >
+                          <span className="material-symbols-outlined text-sm">delete</span>
+                          Delete
+                        </button>
+                      </div>
                     </div>
 
                     {/* ── Photo management panel ── */}
@@ -1175,6 +1463,15 @@ export default function OwnerListings() {
                     <span className="text-xs text-on-surface-variant font-medium">
                       Rating: {listing.rating} ★
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => openDeleteModal({ id: listing.id, title: listing.title })}
+                      className="text-xs font-bold text-red-600 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-50 hover:border-red-400 transition-colors cursor-pointer flex items-center gap-1"
+                      title="Delete property"
+                    >
+                      <span className="material-symbols-outlined text-sm">delete</span>
+                      Delete
+                    </button>
                   </div>
                 </div>
               ))}
@@ -1202,6 +1499,82 @@ export default function OwnerListings() {
           )
         )}
       </div>
+
+      {/* ────────────── Confirmation Modal for Property Deletion ────────────── */}
+      {propertyToDelete && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-red-200 flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+                <span className="material-symbols-outlined text-2xl">warning</span>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-base font-bold text-red-900">
+                  Delete Property
+                </h3>
+                <p className="text-xs text-on-surface-variant mt-1 leading-relaxed">
+                  This action cannot be undone. This will permanently delete{' '}
+                  <span className="font-bold text-on-surface">{propertyToDelete.title}</span>,
+                  including all rooms, amenities, photos, reviews, and will notify any students
+                  with scheduled tour bookings.
+                </p>
+              </div>
+            </div>
+
+            {deleteError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg p-3 font-medium">
+                {deleteError}
+              </div>
+            )}
+
+            <form onSubmit={handleDeleteProperty} className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-on-surface">
+                  To confirm, type <span className="font-bold text-red-700 select-all font-mono bg-red-50 px-1 py-0.5 rounded border border-red-100">{propertyToDelete.title}</span> below:
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  required
+                  disabled={deleting}
+                  value={deleteInput}
+                  onChange={(e) => setDeleteInput(e.target.value)}
+                  placeholder={propertyToDelete.title}
+                  className="w-full text-xs p-2.5 rounded-lg border border-outline-variant focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-hidden transition-all disabled:opacity-50"
+                />
+              </div>
+
+              <div className="flex justify-end items-center gap-2 pt-2 border-t border-outline-variant">
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={closeDeleteModal}
+                  className="px-4 py-2 border border-outline-variant rounded-lg text-xs font-bold text-on-surface-variant hover:bg-surface-container-low transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={deleting || deleteInput.trim() !== propertyToDelete.title.trim()}
+                  className="bg-red-600 hover:bg-red-700 text-white px-5 py-2 rounded-lg text-xs font-bold shadow-sm transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                >
+                  {deleting ? (
+                    <>
+                      <span className="material-symbols-outlined text-sm animate-spin">progress_activity</span>
+                      Deleting…
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-symbols-outlined text-sm">delete_forever</span>
+                      Delete Property
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

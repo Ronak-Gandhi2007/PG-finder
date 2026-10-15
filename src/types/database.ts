@@ -37,6 +37,7 @@ export interface Database {
           college_name: string | null;
           student_id_doc_url: string | null;
           is_verified: boolean;
+          student_id_rejection_reason: string | null;
           bio: string | null;
           emergency_contact: string | null;
           created_at: string;
@@ -52,6 +53,7 @@ export interface Database {
           college_name?: string | null;
           student_id_doc_url?: string | null;
           is_verified?: boolean;
+          student_id_rejection_reason?: string | null;
           bio?: string | null;
           emergency_contact?: string | null;
           created_at?: string;
@@ -67,6 +69,7 @@ export interface Database {
           college_name?: string | null;
           student_id_doc_url?: string | null;
           is_verified?: boolean;
+          student_id_rejection_reason?: string | null;
           bio?: string | null;
           emergency_contact?: string | null;
           created_at?: string;
@@ -95,6 +98,7 @@ export interface Database {
           is_premium: boolean;
           is_verified: boolean;
           is_active: boolean;
+          rejection_reason: string | null;
           house_rules: string[];
           contact_phone: string | null;
           contact_email: string | null;
@@ -123,6 +127,7 @@ export interface Database {
           is_premium?: boolean;
           is_verified?: boolean;
           is_active?: boolean;
+          rejection_reason?: string | null;
           house_rules?: string[];
           contact_phone?: string | null;
           contact_email?: string | null;
@@ -151,6 +156,7 @@ export interface Database {
           is_premium?: boolean;
           is_verified?: boolean;
           is_active?: boolean;
+          rejection_reason?: string | null;
           house_rules?: string[];
           contact_phone?: string | null;
           contact_email?: string | null;
@@ -873,6 +879,13 @@ export interface Database {
       is_admin: {
         Args: Record<PropertyKey, never>;
         Returns: boolean;
+      };
+      notify_tour_students_property_deleted: {
+        Args: {
+          p_property_id: string;
+          p_property_title: string;
+        };
+        Returns: number;
       };
     };
     Enums: {

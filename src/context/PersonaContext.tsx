@@ -27,6 +27,8 @@ export interface Listing {
   images: string[];
   distanceText: string;
   distanceKm?: number;
+  latitude?: number;
+  longitude?: number;
   type: 'Boys' | 'Girls' | 'Co-ed';
   premium: boolean;
   amenities: string[];
