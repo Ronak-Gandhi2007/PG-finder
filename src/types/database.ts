@@ -880,6 +880,13 @@ export interface Database {
         Args: Record<PropertyKey, never>;
         Returns: boolean;
       };
+      notify_tour_students_property_deleted: {
+        Args: {
+          p_property_id: string;
+          p_property_title: string;
+        };
+        Returns: number;
+      };
     };
     Enums: {
       user_role: UserRole;

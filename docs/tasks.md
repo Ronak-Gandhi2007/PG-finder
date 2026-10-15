@@ -24,6 +24,7 @@ Legend: [x] done and tested, [ ] to do. Update this file whenever something chan
 - [x] Tour bookings: request, cancel (student); confirm, decline (owner); owner calendar and counts; notification rows for the student
 - [x] Owner Add Property with rooms and amenities (starts unverified)
 - [x] Owner photo upload with compression, cover photo, delete
+- [x] Owner Delete Property: confirmation modal typing property name, student tour notifications, cascade DB deletion, storage photo cleanup, warning handling, and migration 013 (cascade enforcement + RLS)
 
 ### Deployment
 - [x] Backend merged to `main`; live on Vercel with environment variables and Supabase redirect URLs

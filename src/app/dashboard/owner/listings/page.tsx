@@ -84,7 +84,14 @@ export default function OwnerListings() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [warningMsg, setWarningMsg] = useState('');
   const [saving, setSaving] = useState(false);
+
+  /* ─── Delete property state ─── */
+  const [propertyToDelete, setPropertyToDelete] = useState<{ id: string; title: string } | null>(null);
+  const [deleteInput, setDeleteInput] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   /* ─── Real-owner DB state ─── */
   const [dbProperties, setDbProperties] = useState<DbPropertyRow[]>([]);
@@ -705,6 +712,172 @@ export default function OwnerListings() {
     setTimeout(() => setSuccessMsg(''), 4000);
   };
 
+  /* ─── Delete property handlers ─── */
+  const openDeleteModal = (prop: { id: string; title: string }) => {
+    setPropertyToDelete(prop);
+    setDeleteInput('');
+    setDeleteError('');
+  };
+
+  const closeDeleteModal = () => {
+    if (deleting) return;
+    setPropertyToDelete(null);
+    setDeleteInput('');
+    setDeleteError('');
+  };
+
+  const handleDeleteProperty = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!propertyToDelete) return;
+    if (deleteInput.trim() !== propertyToDelete.title.trim()) {
+      setDeleteError('Property name does not match. Please type the exact name to confirm.');
+      return;
+    }
+
+    setDeleting(true);
+    setDeleteError('');
+
+    try {
+      if (isRealOwner) {
+        const supabase = createClient();
+
+        // 1. Notify students who have pending or confirmed tours for this property
+        const { data: bookings } = await supabase
+          .from('bookings_visits')
+          .select('id, student_id, visit_date, time_slot, status')
+          .eq('property_id', propertyToDelete.id)
+          .in('status', ['Pending', 'Confirmed']);
+
+        if (bookings && bookings.length > 0) {
+          // Try RPC function first
+          const { error: rpcErr } = await supabase.rpc('notify_tour_students_property_deleted', {
+            p_property_id: propertyToDelete.id,
+            p_property_title: propertyToDelete.title,
+          });
+
+          if (rpcErr) {
+            console.warn('RPC notification failed, attempting fallback direct insert:', rpcErr);
+            const notifs = bookings.map((b) => ({
+              user_id: b.student_id,
+              title: 'Tour Cancelled: Property Removed',
+              message: `The property "${propertyToDelete.title}" has been removed by the owner. Your scheduled tour for ${b.visit_date} (${b.time_slot}) has been cancelled.`,
+              type: 'booking_declined' as const,
+              link_url: '/dashboard/student',
+            }));
+            const { error: directErr } = await supabase.from('notifications').insert(notifs);
+            if (directErr) {
+              console.warn('Direct notification insert also failed:', directErr);
+            }
+          }
+        }
+
+        // 2. First read the property's photo storage paths
+        const storagePaths: string[] = [];
+
+        // Read from property_images table before deleting the property row
+        const { data: imageRows } = await supabase
+          .from('property_images')
+          .select('image_url')
+          .eq('property_id', propertyToDelete.id);
+
+        if (imageRows && imageRows.length > 0) {
+          for (const img of imageRows) {
+            try {
+              const url = new URL(img.image_url);
+              const match = url.pathname.match(/\/property-images\/(.+)$/);
+              if (match && match[1]) {
+                const decoded = decodeURIComponent(match[1]);
+                if (!storagePaths.includes(decoded)) {
+                  storagePaths.push(decoded);
+                }
+              }
+            } catch {
+              // ignore invalid URL format
+            }
+          }
+        }
+
+        // Also check if there are remaining files in the property folder in storage
+        try {
+          const { data: listedFiles } = await supabase.storage
+            .from('property-images')
+            .list(propertyToDelete.id);
+
+          if (listedFiles && listedFiles.length > 0) {
+            for (const item of listedFiles) {
+              if (item.name) {
+                const p = `${propertyToDelete.id}/${item.name}`;
+                if (!storagePaths.includes(p)) {
+                  storagePaths.push(p);
+                }
+              }
+            }
+          }
+        } catch {
+          // ignore folder listing errors
+        }
+
+        // 3. Delete the property row (cascading to related rows)
+        const { error: deleteErr } = await supabase
+          .from('properties')
+          .delete()
+          .eq('id', propertyToDelete.id);
+
+        if (deleteErr) {
+          setDeleteError(deleteErr.message || 'Failed to delete property. Please try again.');
+          setDeleting(false);
+          return;
+        }
+
+        // 4. Remove the photo files from the storage bucket via Storage API
+        // If file removal fails, show a warning but still treat the property as deleted.
+        let storageWarning = '';
+        if (storagePaths.length > 0) {
+          try {
+            const { error: storageErr } = await supabase.storage
+              .from('property-images')
+              .remove(storagePaths);
+
+            if (storageErr) {
+              storageWarning = `Property deleted, but some photo files could not be removed from storage (${storageErr.message}).`;
+            }
+          } catch (sErr: any) {
+            storageWarning = `Property deleted, but photo file removal encountered an error (${sErr?.message || 'Storage error'}).`;
+          }
+        }
+
+        // 5. Clean up UI state, refresh listings
+        const deletedTitle = propertyToDelete.title;
+        setPropertyToDelete(null);
+        setDeleteInput('');
+        setDeleteError('');
+        setDeleting(false);
+
+        await fetchProperties();
+
+        if (storageWarning) {
+          setWarningMsg(storageWarning);
+          setSuccessMsg(`"${deletedTitle}" was deleted.`);
+        } else {
+          setSuccessMsg(`"${deletedTitle}" was deleted successfully.`);
+          setWarningMsg('');
+        }
+      } else {
+        // Dev-demo mode: remove from local state
+        const deletedTitle = propertyToDelete.title;
+        setListings((prev) => prev.filter((l) => l.id !== propertyToDelete.id));
+        setPropertyToDelete(null);
+        setDeleteInput('');
+        setDeleteError('');
+        setDeleting(false);
+        setSuccessMsg(`"${deletedTitle}" was deleted successfully.`);
+      }
+    } catch (err: any) {
+      setDeleteError(err?.message || 'An unexpected error occurred while deleting the property.');
+      setDeleting(false);
+    }
+  };
+
   const handleSubmit = isRealOwner ? handleRealSubmit : handleDemoSubmit;
 
   /* ─── Shared input classes ─── */
@@ -731,14 +904,41 @@ export default function OwnerListings() {
       </div>
 
       {successMsg && (
-        <div className="bg-emerald-50 border border-emerald-300 p-4 rounded-xl text-xs font-bold text-deep-green animate-pulse">
-          {successMsg}
+        <div className="bg-emerald-50 border border-emerald-300 p-4 rounded-xl text-xs font-bold text-deep-green flex items-center justify-between">
+          <span>{successMsg}</span>
+          <button
+            type="button"
+            onClick={() => setSuccessMsg('')}
+            className="text-deep-green hover:opacity-75 font-bold ml-2 cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {warningMsg && (
+        <div className="bg-amber-50 border border-amber-300 p-4 rounded-xl text-xs font-bold text-amber-800 flex items-center justify-between">
+          <span>{warningMsg}</span>
+          <button
+            type="button"
+            onClick={() => setWarningMsg('')}
+            className="text-amber-800 hover:text-amber-950 font-bold ml-2 cursor-pointer"
+          >
+            ✕
+          </button>
         </div>
       )}
 
       {errorMsg && (
-        <div className="bg-red-50 border border-red-300 p-4 rounded-xl text-xs font-bold text-red-700">
-          {errorMsg}
+        <div className="bg-red-50 border border-red-300 p-4 rounded-xl text-xs font-bold text-red-700 flex items-center justify-between">
+          <span>{errorMsg}</span>
+          <button
+            type="button"
+            onClick={() => setErrorMsg('')}
+            className="text-red-700 hover:opacity-75 font-bold ml-2 cursor-pointer"
+          >
+            ✕
+          </button>
         </div>
       )}
 
@@ -1089,6 +1289,15 @@ export default function OwnerListings() {
                         >
                           {expandedPhotoProp === prop.id ? 'Hide Photos' : 'Manage Photos'}
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => openDeleteModal(prop)}
+                          className="text-xs font-bold text-red-600 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-50 hover:border-red-400 transition-colors cursor-pointer flex items-center gap-1"
+                          title="Delete property"
+                        >
+                          <span className="material-symbols-outlined text-sm">delete</span>
+                          Delete
+                        </button>
                       </div>
                     </div>
 
@@ -1254,6 +1463,15 @@ export default function OwnerListings() {
                     <span className="text-xs text-on-surface-variant font-medium">
                       Rating: {listing.rating} ★
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => openDeleteModal({ id: listing.id, title: listing.title })}
+                      className="text-xs font-bold text-red-600 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-50 hover:border-red-400 transition-colors cursor-pointer flex items-center gap-1"
+                      title="Delete property"
+                    >
+                      <span className="material-symbols-outlined text-sm">delete</span>
+                      Delete
+                    </button>
                   </div>
                 </div>
               ))}
@@ -1281,6 +1499,82 @@ export default function OwnerListings() {
           )
         )}
       </div>
+
+      {/* ────────────── Confirmation Modal for Property Deletion ────────────── */}
+      {propertyToDelete && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-red-200 flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+                <span className="material-symbols-outlined text-2xl">warning</span>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-base font-bold text-red-900">
+                  Delete Property
+                </h3>
+                <p className="text-xs text-on-surface-variant mt-1 leading-relaxed">
+                  This action cannot be undone. This will permanently delete{' '}
+                  <span className="font-bold text-on-surface">{propertyToDelete.title}</span>,
+                  including all rooms, amenities, photos, reviews, and will notify any students
+                  with scheduled tour bookings.
+                </p>
+              </div>
+            </div>
+
+            {deleteError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg p-3 font-medium">
+                {deleteError}
+              </div>
+            )}
+
+            <form onSubmit={handleDeleteProperty} className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-on-surface">
+                  To confirm, type <span className="font-bold text-red-700 select-all font-mono bg-red-50 px-1 py-0.5 rounded border border-red-100">{propertyToDelete.title}</span> below:
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  required
+                  disabled={deleting}
+                  value={deleteInput}
+                  onChange={(e) => setDeleteInput(e.target.value)}
+                  placeholder={propertyToDelete.title}
+                  className="w-full text-xs p-2.5 rounded-lg border border-outline-variant focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-hidden transition-all disabled:opacity-50"
+                />
+              </div>
+
+              <div className="flex justify-end items-center gap-2 pt-2 border-t border-outline-variant">
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={closeDeleteModal}
+                  className="px-4 py-2 border border-outline-variant rounded-lg text-xs font-bold text-on-surface-variant hover:bg-surface-container-low transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={deleting || deleteInput.trim() !== propertyToDelete.title.trim()}
+                  className="bg-red-600 hover:bg-red-700 text-white px-5 py-2 rounded-lg text-xs font-bold shadow-sm transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                >
+                  {deleting ? (
+                    <>
+                      <span className="material-symbols-outlined text-sm animate-spin">progress_activity</span>
+                      Deleting…
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-symbols-outlined text-sm">delete_forever</span>
+                      Delete Property
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

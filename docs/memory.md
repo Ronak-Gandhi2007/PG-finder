@@ -43,7 +43,7 @@ A confirmed student account and a confirmed owner account exist for demos (detai
 | Auth, dashboards, protected routes | Real |
 | Home, search, listing detail | Real |
 | Shortlist, tour bookings | Real |
-| Owner add property and photos | Real |
+| Owner add property, photos, delete | Real |
 | Reviews | Mock (planned next) |
 | Admin dashboard & verification | Real (real queries, student IDs, listings, on-demand signed URLs, approve/reject) |
 | Premium and payments | UI only |
@@ -56,5 +56,5 @@ A confirmed student account and a confirmed owner account exist for demos (detai
 - Supabase clients: `src/lib/supabase/client.ts`, `server.ts`, `public.ts`, `middleware.ts`; proxy entry `src/proxy.ts`
 - Safe redirects: `src/lib/safe-redirect.ts`
 - Session and UI state: `src/context/PersonaContext.tsx`
-- Migrations: `supabase/migrations/001` to `009`; seeds: `supabase/seed/`
+- Migrations: `supabase/migrations/001` to `013`; seeds: `supabase/seed/`
 - Other docs: `docs/DATABASE_ARCHITECTURE.md`, `docs/AUTHENTICATION_ARCHITECTURE.md`, `prd.md`, `architecture.md`, `rules.md`, `design.md`, `tasks.md`
